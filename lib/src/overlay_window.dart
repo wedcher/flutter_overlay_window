@@ -171,6 +171,47 @@ class FlutterOverlayWindow {
     return _res;
   }
 
+  /// **Pikmin fork addition (checkpoint 1b — native -> overlay isolate
+  /// communication verification)**: registers a listener for the native
+  /// `listDragEnded` event, fired from `OverlayService.onTouch()`'s
+  /// `ACTION_UP`/`ACTION_CANCEL` handling whenever a real drag (touch
+  /// moved past the native drag threshold, not just a tap) just ended
+  /// while `enableDrag` was on. [xPx]/[yPx] are the window's final
+  /// `WindowManager.LayoutParams.x/y`, in **physical px** (native does no
+  /// unit conversion for this event — same reasoning as
+  /// [setDragExclusionRects]'s px choice: the caller already needs
+  /// `devicePixelRatio` locally for other things, no reason to duplicate
+  /// px/dp conversion on the native side too).
+  ///
+  /// Deliberately does NOT go through `WindowSetup.messenger`/`shareData`
+  /// — this reuses the SAME `x-slayer/overlay` channel already used
+  /// (Dart-to-native direction) by [resizeOverlay]/[updateFlag]/
+  /// [setDragExclusionRects], just in the reverse (native-to-Dart)
+  /// direction. Only receives events on the overlay isolate's own engine
+  /// (the main app isolate has no handler registered on this channel at
+  /// all, so calling this from there would simply never receive anything
+  /// — there's nothing to send from the main-isolate side of this
+  /// channel).
+  ///
+  /// Calling this replaces any previously-registered
+  /// `_overlayChannel` method call handler wholesale (there is only ever
+  /// one handler per channel per engine) — do not also try to register a
+  /// separate handler for some other method on this same channel from
+  /// app code.
+  static void setListDragEndedListener(
+    void Function(double xPx, double yPx) listener,
+  ) {
+    _overlayChannel.setMethodCallHandler((call) async {
+      if (call.method == 'listDragEnded') {
+        final args = Map<Object?, Object?>.from(call.arguments as Map);
+        final x = (args['x'] as num).toDouble();
+        final y = (args['y'] as num).toDouble();
+        listener(x, y);
+      }
+      return null;
+    });
+  }
+
   /// Update the overlay position in the screen
   ///
   /// `position` the new position of the overlay

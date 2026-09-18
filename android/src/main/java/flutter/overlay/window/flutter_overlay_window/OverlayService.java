@@ -492,28 +492,29 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     }
                     lastYPosition = params.y;
                     if (dragging) {
-                        // Pikmin fork addition: a real drag (not just a
-                        // tap) genuinely ended here — params.x/y already
-                        // hold the final settled position (every
-                        // ACTION_MOVE above already applied it via
-                        // updateViewLayout()). This is deliberately left
-                        // as a no-op for now: notifying the main app
-                        // isolate would naturally reuse
-                        // WindowSetup.messenger, but that field is a
-                        // single static shared by every Flutter engine
-                        // that attaches to this plugin (main app engine
-                        // AND this cached overlay engine both call
-                        // onAttachedToEngine(), each overwriting it) —
-                        // already a confirmed-broken cross-isolate path
-                        // for this exact reason (see the consuming app's
-                        // own PROJECT.md "2026-08-21" record). Wiring this
-                        // up for real needs a decision on which fix to
-                        // use (e.g. a dedicated, non-shared channel field,
-                        // or routing back through the Dart side of THIS
-                        // overlay engine's own flutterChannel instead of
-                        // messenger) — not done in this patch.
+                        // Pikmin fork addition (checkpoint 1b — native ->
+                        // overlay isolate communication verification): a
+                        // real drag (not just a tap) genuinely ended here
+                        // — params.x/y already hold the final settled
+                        // position (every ACTION_MOVE above already
+                        // applied it via updateViewLayout()). Deliberately
+                        // does NOT touch WindowSetup.messenger (see the
+                        // checkpoint-1 comment history / consuming app's
+                        // PROJECT.md "2026-08-21" record for why that
+                        // shared static is unreliable) — instead invokes
+                        // straight back into THIS SAME overlay engine's
+                        // own flutterChannel (already proven reliable for
+                        // resizeOverlay/updateFlag/setDragExclusionRects
+                        // in the Dart-to-native direction; this is the
+                        // same channel, just the reverse direction, which
+                        // is a standard MethodChannel capability). No
+                        // result callback needed — fire-and-forget.
                         Log.d("OverLay", "Pikmin fork: drag ended at x=" + params.x + " y=" + params.y
-                                + " (notify-to-main-isolate intentionally not wired up yet)");
+                                + ", invoking listDragEnded on flutterChannel");
+                        Map<String, Object> listDragEndedArgs = new HashMap<>();
+                        listDragEndedArgs.put("x", (double) params.x);
+                        listDragEndedArgs.put("y", (double) params.y);
+                        flutterChannel.invokeMethod("listDragEnded", listDragEndedArgs);
                     }
                     if (!WindowSetup.positionGravity.equals("none")) {
                         if (windowManager == null) return false;
