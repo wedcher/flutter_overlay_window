@@ -133,6 +133,44 @@ class FlutterOverlayWindow {
     return _res;
   }
 
+  /// **Pikmin fork addition**: sets the rectangles inside which the
+  /// overlay window's native `enableDrag` handling should be disabled for
+  /// the whole gesture (buttons, a scrollable list, etc.), letting the
+  /// touch flow through to Flutter's own gesture handling untouched
+  /// instead. Replaces the previous list wholesale — call again with an
+  /// empty list to clear all exclusions.
+  ///
+  /// [rects] must be in **physical px, relative to this overlay window's
+  /// own top-left corner** — i.e. exactly what
+  /// `RenderBox.localToGlobal(Offset.zero) & renderBox.size` gives you
+  /// (in logical px) once multiplied by `devicePixelRatio`. This is
+  /// deliberately NOT the same coordinate space as [moveOverlay]/
+  /// [getOverlayPosition] (which are dp, relative to the device screen) —
+  /// the native side compares against `MotionEvent.getX()/getY()`
+  /// (view-relative), not `getRawX()/getRawY()` (screen-absolute), so no
+  /// screen-absolute window position needs to be known by either side.
+  ///
+  /// Only callable from the overlay isolate's own engine (same channel as
+  /// [resizeOverlay]/[updateFlag] — calling from the main app isolate has
+  /// no registered handler).
+  static Future<bool?> setDragExclusionRects(List<Rect> rects) async {
+    final bool? _res = await _overlayChannel.invokeMethod<bool?>(
+      'setDragExclusionRects',
+      {
+        'rects': [
+          for (final r in rects)
+            {
+              'left': r.left,
+              'top': r.top,
+              'right': r.right,
+              'bottom': r.bottom,
+            },
+        ],
+      },
+    );
+    return _res;
+  }
+
   /// Update the overlay position in the screen
   ///
   /// `position` the new position of the overlay

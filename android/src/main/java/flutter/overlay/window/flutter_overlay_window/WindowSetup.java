@@ -1,10 +1,14 @@
 package flutter.overlay.window.flutter_overlay_window;
 
 
+import android.graphics.Rect;
 import android.view.Gravity;
 import android.view.WindowManager;
 
 import androidx.core.app.NotificationCompat;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import io.flutter.plugin.common.BasicMessageChannel;
 
@@ -20,6 +24,19 @@ public abstract class WindowSetup {
     static String positionGravity = "none";
     static int notificationVisibility = NotificationCompat.VISIBILITY_PRIVATE;
     static boolean enableDrag = false;
+
+    /**
+     * Pikmin fork addition: rectangles (in physical px, relative to this
+     * overlay window's own top-left corner — i.e. the same coordinate space
+     * as {@link android.view.MotionEvent#getX()}/{@code getY()}, NOT
+     * {@code getRawX()}/{@code getRawY()}) inside which
+     * {@link OverlayService#onTouch} should NOT engage native window
+     * dragging, letting the touch flow through to Flutter's own gesture
+     * handling untouched. Set via the new {@code setDragExclusionRects}
+     * method on the existing {@code x-slayer/overlay} channel. Empty by
+     * default (no exclusions, same as upstream behavior).
+     */
+    static List<Rect> dragExclusionRects = new ArrayList<>();
 
 
     static void setNotificationVisibility(String name) {

@@ -10,6 +10,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.app.PendingIntent;
 import android.graphics.Point;
 import android.os.Build;
@@ -28,7 +29,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -67,6 +70,16 @@ public class OverlayService extends Service implements View.OnTouchListener {
     private float lastX, lastY;
     private int lastYPosition;
     private boolean dragging;
+    /**
+     * Pikmin fork addition: whether the touch-down point of the CURRENT
+     * gesture fell inside one of {@link WindowSetup#dragExclusionRects}.
+     * Computed once in {@code ACTION_DOWN} and read (never recomputed)
+     * for the rest of that same gesture in {@code ACTION_MOVE}/
+     * {@code ACTION_UP}/{@code ACTION_CANCEL} — the classification is
+     * fixed for the whole gesture so the drag doesn't flip on/off if the
+     * finger later crosses an exclusion rect's boundary mid-gesture.
+     */
+    private boolean touchInExclusionZone;
     private static final float MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER = 0.8f;
     private Point szWindow = new Point();
     private Timer mTrayAnimationTimer;
@@ -140,6 +153,9 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 int height = call.argument("height");
                 boolean enableDrag = call.argument("enableDrag");
                 resizeOverlay(width, height, enableDrag, result);
+            } else if (call.method.equals("setDragExclusionRects")) {
+                List<Map<String, Double>> rects = call.argument("rects");
+                setDragExclusionRects(rects, result);
             }
         });
         overlayMessageChannel.setMessageHandler((message, reply) -> {
@@ -251,6 +267,55 @@ public class OverlayService extends Service implements View.OnTouchListener {
         } else {
             result.success(false);
         }
+    }
+
+    /**
+     * Pikmin fork addition: replaces {@link WindowSetup#dragExclusionRects}
+     * wholesale with the rectangles supplied from Dart. Each entry in
+     * {@code rects} is expected to be a map with {@code left}/{@code top}/
+     * {@code right}/{@code bottom} keys, all in physical px, relative to
+     * this window's own top-left corner (the caller is responsible for
+     * converting from Flutter's logical px via the overlay isolate's own
+     * {@code devicePixelRatio} before calling — this native side does not
+     * do any dp/px conversion here, unlike {@link #moveOverlay} /
+     * {@link #resizeOverlay}, because the source coordinates already come
+     * from {@code RenderBox.localToGlobal()} in the SAME window's own
+     * coordinate space, not a dp value meant for
+     * {@code WindowManager.LayoutParams}).
+     */
+    private void setDragExclusionRects(List<Map<String, Double>> rects, MethodChannel.Result result) {
+        List<Rect> parsed = new ArrayList<>();
+        if (rects != null) {
+            for (Map<String, Double> rect : rects) {
+                Double left = rect.get("left");
+                Double top = rect.get("top");
+                Double right = rect.get("right");
+                Double bottom = rect.get("bottom");
+                if (left == null || top == null || right == null || bottom == null) {
+                    continue;
+                }
+                parsed.add(new Rect(left.intValue(), top.intValue(), right.intValue(), bottom.intValue()));
+            }
+        }
+        WindowSetup.dragExclusionRects = parsed;
+        result.success(true);
+    }
+
+    /**
+     * Pikmin fork addition: true if {@code (x, y)} — in the same
+     * window-relative physical-px coordinate space as
+     * {@link MotionEvent#getX()}/{@code getY()} — falls inside any of the
+     * currently registered {@link WindowSetup#dragExclusionRects}.
+     */
+    private boolean isInDragExclusionZone(float x, float y) {
+        int ix = (int) x;
+        int iy = (int) y;
+        for (Rect rect : WindowSetup.dragExclusionRects) {
+            if (rect.contains(ix, iy)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void moveOverlay(int x, int y, MethodChannel.Result result) {
@@ -381,10 +446,23 @@ public class OverlayService extends Service implements View.OnTouchListener {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     dragging = false;
+                    // Pikmin fork addition: classify the WHOLE upcoming
+                    // gesture right here, once, using view-relative
+                    // (event.getX()/getY(), NOT getRawX()/getRawY())
+                    // coordinates — this is the same coordinate space
+                    // Dart's RenderBox.localToGlobal() produces for a
+                    // widget inside THIS window, so no absolute-screen
+                    // position lookup is needed on either side. Every
+                    // other case below only ever READS this field for the
+                    // rest of the gesture, never recomputes it.
+                    touchInExclusionZone = isInDragExclusionZone(event.getX(), event.getY());
                     lastX = event.getRawX();
                     lastY = event.getRawY();
                     break;
                 case MotionEvent.ACTION_MOVE:
+                    if (touchInExclusionZone) {
+                        return false;
+                    }
                     float dx = event.getRawX() - lastX;
                     float dy = event.getRawY() - lastY;
                     if (!dragging && dx * dx + dy * dy < 25) {
@@ -409,7 +487,34 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
+                    if (touchInExclusionZone) {
+                        return false;
+                    }
                     lastYPosition = params.y;
+                    if (dragging) {
+                        // Pikmin fork addition: a real drag (not just a
+                        // tap) genuinely ended here — params.x/y already
+                        // hold the final settled position (every
+                        // ACTION_MOVE above already applied it via
+                        // updateViewLayout()). This is deliberately left
+                        // as a no-op for now: notifying the main app
+                        // isolate would naturally reuse
+                        // WindowSetup.messenger, but that field is a
+                        // single static shared by every Flutter engine
+                        // that attaches to this plugin (main app engine
+                        // AND this cached overlay engine both call
+                        // onAttachedToEngine(), each overwriting it) —
+                        // already a confirmed-broken cross-isolate path
+                        // for this exact reason (see the consuming app's
+                        // own PROJECT.md "2026-08-21" record). Wiring this
+                        // up for real needs a decision on which fix to
+                        // use (e.g. a dedicated, non-shared channel field,
+                        // or routing back through the Dart side of THIS
+                        // overlay engine's own flutterChannel instead of
+                        // messenger) — not done in this patch.
+                        Log.d("OverLay", "Pikmin fork: drag ended at x=" + params.x + " y=" + params.y
+                                + " (notify-to-main-isolate intentionally not wired up yet)");
+                    }
                     if (!WindowSetup.positionGravity.equals("none")) {
                         if (windowManager == null) return false;
                         windowManager.updateViewLayout(flutterView, params);
