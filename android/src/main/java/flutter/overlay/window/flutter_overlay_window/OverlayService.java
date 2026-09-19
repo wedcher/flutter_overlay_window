@@ -156,6 +156,9 @@ public class OverlayService extends Service implements View.OnTouchListener {
             } else if (call.method.equals("setDragExclusionRects")) {
                 List<Map<String, Double>> rects = call.argument("rects");
                 setDragExclusionRects(rects, result);
+            } else if (call.method.equals("setDragBounds")) {
+                Map<String, Double> bounds = call.argument("bounds");
+                setDragBounds(bounds, result);
             }
         });
         overlayMessageChannel.setMessageHandler((message, reply) -> {
@@ -298,6 +301,31 @@ public class OverlayService extends Service implements View.OnTouchListener {
             }
         }
         WindowSetup.dragExclusionRects = parsed;
+        result.success(true);
+    }
+
+    /**
+     * Pikmin fork addition (top/left/right drag bounds): sets the
+     * {@link WindowSetup#dragMinYPx}/{@code dragMinXPx}/{@code dragMaxXPx}
+     * clamp limits used by {@link #onTouch}'s {@code ACTION_MOVE} handling.
+     * Each of {@code minY}/{@code minX}/{@code maxX} in {@code bounds} is
+     * optional — an omitted key resets that one axis back to its "unset"
+     * sentinel (see {@link WindowSetup} field doc), so a caller that only
+     * ever wants a top clamp (e.g. the consuming app's list/big-card
+     * views, which are deliberately allowed to hang off the left/right
+     * edges) can pass just {@code minY} without also having to pass
+     * screen-width-derived min/max X values. Same physical-px, window-
+     * relative coordinate space as {@link #setDragExclusionRects} — no
+     * dp/px conversion happens here, the caller already has
+     * {@code devicePixelRatio} for that.
+     */
+    private void setDragBounds(Map<String, Double> bounds, MethodChannel.Result result) {
+        Double minY = bounds == null ? null : bounds.get("minY");
+        Double minX = bounds == null ? null : bounds.get("minX");
+        Double maxX = bounds == null ? null : bounds.get("maxX");
+        WindowSetup.dragMinYPx = minY == null ? Integer.MIN_VALUE : minY.intValue();
+        WindowSetup.dragMinXPx = minX == null ? Integer.MIN_VALUE : minX.intValue();
+        WindowSetup.dragMaxXPx = maxX == null ? Integer.MAX_VALUE : maxX.intValue();
         result.success(true);
     }
 
@@ -478,6 +506,27 @@ public class OverlayService extends Service implements View.OnTouchListener {
                             || WindowSetup.gravity == (Gravity.BOTTOM | Gravity.RIGHT);
                     int xx = params.x + ((int) dx * (invertX ? -1 : 1));
                     int yy = params.y + ((int) dy * (invertY ? -1 : 1));
+                    // Pikmin fork addition (top/left/right drag bounds):
+                    // clamp DURING the gesture, before the value is ever
+                    // applied — this is intentionally different from the
+                    // consuming app's older "let it cross, then snap back
+                    // on a timer" approach for the ball, which the app's
+                    // own PROJECT.md records as a deliberate earlier
+                    // decision to avoid touching this exact native code.
+                    // Unset axes (sentinels, see WindowSetup field doc)
+                    // are no-ops, so a window that never calls
+                    // setDragBounds — or only sets minY — keeps the exact
+                    // upstream unclamped behavior on whichever axes it
+                    // didn't set.
+                    if (WindowSetup.dragMinXPx != Integer.MIN_VALUE) {
+                        xx = Math.max(xx, WindowSetup.dragMinXPx);
+                    }
+                    if (WindowSetup.dragMaxXPx != Integer.MAX_VALUE) {
+                        xx = Math.min(xx, WindowSetup.dragMaxXPx);
+                    }
+                    if (WindowSetup.dragMinYPx != Integer.MIN_VALUE) {
+                        yy = Math.max(yy, WindowSetup.dragMinYPx);
+                    }
                     params.x = xx;
                     params.y = yy;
                     if (windowManager != null) {

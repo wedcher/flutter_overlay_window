@@ -171,6 +171,48 @@ class FlutterOverlayWindow {
     return _res;
   }
 
+  /// **Pikmin fork addition (top/left/right drag bounds)**: sets clamp
+  /// limits applied DURING native `enableDrag` dragging (inside
+  /// `OverlayService.onTouch()`'s `ACTION_MOVE`, before the position is
+  /// applied) — this is a real-time "don't let it cross" clamp, not the
+  /// "let it cross, then snap back afterwards" style of correction the
+  /// consuming app does today in its own Dart-side position watcher for
+  /// the ball. Real-time clamping can only happen here, on the native
+  /// side: `enableDrag` gestures are handled entirely inside `onTouch()`
+  /// and never surface intermediate `ACTION_MOVE` positions to Dart at
+  /// all (only the final position, once, via [setListDragEndedListener]).
+  ///
+  /// [minYPx]/[minXPx]/[maxXPx] are all optional and independent — pass
+  /// only the ones you want clamped. A caller that wants a top clamp but
+  /// deliberately allows the window to hang off the left/right edges
+  /// (e.g. a wide panel) should pass only [minYPx]. Omitting a param
+  /// resets that one axis back to unclamped (native "unset" sentinel),
+  /// it does not leave a previous value in place — call again with all
+  /// three omitted to fully clear. Deliberately no `maxYPx`/bottom clamp
+  /// — this fork does not touch bottom-edge behavior.
+  ///
+  /// Same physical-px, window-relative coordinate space as
+  /// [setDragExclusionRects] (multiply logical px by `devicePixelRatio`
+  /// yourself before calling). Only callable from the overlay isolate's
+  /// own engine, same as [setDragExclusionRects]/[resizeOverlay].
+  static Future<bool?> setDragBounds({
+    double? minYPx,
+    double? minXPx,
+    double? maxXPx,
+  }) async {
+    final bool? _res = await _overlayChannel.invokeMethod<bool?>(
+      'setDragBounds',
+      {
+        'bounds': {
+          if (minYPx != null) 'minY': minYPx,
+          if (minXPx != null) 'minX': minXPx,
+          if (maxXPx != null) 'maxX': maxXPx,
+        },
+      },
+    );
+    return _res;
+  }
+
   /// **Pikmin fork addition (checkpoint 1b — native -> overlay isolate
   /// communication verification)**: registers a listener for the native
   /// `listDragEnded` event, fired from `OverlayService.onTouch()`'s

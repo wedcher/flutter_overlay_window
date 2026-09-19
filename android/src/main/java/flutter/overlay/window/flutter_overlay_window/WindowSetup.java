@@ -38,6 +38,23 @@ public abstract class WindowSetup {
      */
     static List<Rect> dragExclusionRects = new ArrayList<>();
 
+    /**
+     * Pikmin fork addition (top/left/right drag bounds): physical-px
+     * clamp limits applied to {@link WindowManager.LayoutParams#x}/
+     * {@code y} inside {@link OverlayService#onTouch}'s
+     * {@code ACTION_MOVE} handling, one field per axis so each can be set
+     * independently. {@link Integer#MIN_VALUE}/{@link Integer#MAX_VALUE}
+     * are the "unset" sentinels — a caller that never calls the new
+     * {@code setDragBounds} method (or omits a given key) gets the exact
+     * upstream unclamped behavior for that axis, unchanged. Deliberately
+     * no {@code dragMaxYPx} — this fork does not clamp the bottom edge
+     * (dragging to the bottom of the screen already has a separate,
+     * unrelated meaning in the consuming app: closing the whole overlay).
+     */
+    static int dragMinYPx = Integer.MIN_VALUE;
+    static int dragMinXPx = Integer.MIN_VALUE;
+    static int dragMaxXPx = Integer.MAX_VALUE;
+
 
     static void setNotificationVisibility(String name) {
         if (name.equalsIgnoreCase("visibilityPublic")) {
