@@ -192,6 +192,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && WindowSetup.flag == clickableFlag) {
             params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
         }
+        // Pikmin fork addition: disable the system window move animation so
+        // programmatic position changes (moveOverlay/updateOverlayPosition)
+        // apply instantly instead of visibly sliding across the screen.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            params.setCanPlayMoveAnimation(false);
+        }
         params.gravity = WindowSetup.gravity;
         flutterView.setOnTouchListener(this);
         windowManager.addView(flutterView, params);
