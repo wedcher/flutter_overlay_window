@@ -46,14 +46,27 @@ public abstract class WindowSetup {
      * independently. {@link Integer#MIN_VALUE}/{@link Integer#MAX_VALUE}
      * are the "unset" sentinels — a caller that never calls the new
      * {@code setDragBounds} method (or omits a given key) gets the exact
-     * upstream unclamped behavior for that axis, unchanged. Deliberately
-     * no {@code dragMaxYPx} — this fork does not clamp the bottom edge
-     * (dragging to the bottom of the screen already has a separate,
-     * unrelated meaning in the consuming app: closing the whole overlay).
+     * upstream unclamped behavior for that axis, unchanged. No absolute
+     * {@code dragMaxYPx}: the bottom edge is only clamped through the
+     * dynamic safe-area rule below.
      */
     static int dragMinYPx = Integer.MIN_VALUE;
     static int dragMinXPx = Integer.MIN_VALUE;
     static int dragMaxXPx = Integer.MAX_VALUE;
+
+    /**
+     * Pikmin fork addition (dynamic drag safe area): the part of this
+     * window (physical px, window-relative — e.g. the ball inside an
+     * enlarged window) that {@link OverlayService#onTouch} keeps inside
+     * the {@link SystemSafeArea} while dragging, on the edges flagged
+     * below. Applied on top of (never looser than) the absolute bounds
+     * above. {@code null} = rule off. Set via {@code setDragBounds}'
+     * optional {@code safeArea} map.
+     */
+    static Rect dragSafeContentRect = null;
+    static boolean dragSafeLeft, dragSafeTop, dragSafeRight, dragSafeBottom;
+    /** Top protection used only when insets can't be read (API &lt; 30). */
+    static int safeAreaFallbackTopPx = 0;
 
 
     static void setNotificationVisibility(String name) {

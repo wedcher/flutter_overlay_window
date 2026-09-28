@@ -112,6 +112,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
      * finger later crosses an exclusion rect's boundary mid-gesture.
      */
     private boolean touchInExclusionZone;
+    /** Pikmin fork addition: latest screen-level safe area, see {@link #refreshSafeArea}. */
+    private SystemSafeArea safeArea;
+    /** Pikmin fork addition: the bounds log line is printed once per gesture. */
+    private boolean boundsLoggedThisGesture;
     private static final float MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER = 0.8f;
     private Point szWindow = new Point();
     private Timer mTrayAnimationTimer;
@@ -190,7 +194,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 List<Map<String, Double>> rects = call.argument("rects");
                 setDragExclusionRects(rects, result);
             } else if (call.method.equals("setDragBounds")) {
-                Map<String, Double> bounds = call.argument("bounds");
+                Map<String, Object> bounds = call.argument("bounds");
                 setDragBounds(bounds, result);
             } else if (call.method.equals("performLongPressHaptic")) {
                 // Pikmin fork addition: Flutter's HapticFeedback is a no-op
@@ -242,7 +246,16 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
         params.gravity = WindowSetup.gravity;
         flutterView.setOnTouchListener(this);
+        // Pikmin fork addition (dynamic drag safe area): the view's own
+        // insets are only this small window's overlap with the bars, so
+        // they are used purely as a "recompute" trigger. Must still hand
+        // the insets to the view so FlutterView keeps its own padding.
+        flutterView.setOnApplyWindowInsetsListener((v, insets) -> {
+            refreshSafeArea("insets");
+            return v.onApplyWindowInsets(insets);
+        });
         windowManager.addView(flutterView, params);
+        refreshSafeArea("attach");
         moveOverlay(dx, dy, null);
         return START_STICKY;
     }
@@ -367,14 +380,62 @@ public class OverlayService extends Service implements View.OnTouchListener {
      * dp/px conversion happens here, the caller already has
      * {@code devicePixelRatio} for that.
      */
-    private void setDragBounds(Map<String, Double> bounds, MethodChannel.Result result) {
-        Double minY = bounds == null ? null : bounds.get("minY");
-        Double minX = bounds == null ? null : bounds.get("minX");
-        Double maxX = bounds == null ? null : bounds.get("maxX");
+    private void setDragBounds(Map<String, Object> bounds, MethodChannel.Result result) {
+        Number minY = bounds == null ? null : (Number) bounds.get("minY");
+        Number minX = bounds == null ? null : (Number) bounds.get("minX");
+        Number maxX = bounds == null ? null : (Number) bounds.get("maxX");
         WindowSetup.dragMinYPx = minY == null ? Integer.MIN_VALUE : minY.intValue();
         WindowSetup.dragMinXPx = minX == null ? Integer.MIN_VALUE : minX.intValue();
         WindowSetup.dragMaxXPx = maxX == null ? Integer.MAX_VALUE : maxX.intValue();
+        // Pikmin fork addition (dynamic drag safe area): optional rule, see
+        // WindowSetup#dragSafeContentRect. Omitted = rule off.
+        @SuppressWarnings("unchecked")
+        Map<String, Object> safe = bounds == null ? null : (Map<String, Object>) bounds.get("safeArea");
+        if (safe == null) {
+            WindowSetup.dragSafeContentRect = null;
+        } else {
+            WindowSetup.dragSafeContentRect = new Rect(
+                    num(safe, "contentLeft"), num(safe, "contentTop"),
+                    num(safe, "contentRight"), num(safe, "contentBottom"));
+            WindowSetup.dragSafeLeft = Boolean.TRUE.equals(safe.get("left"));
+            WindowSetup.dragSafeTop = Boolean.TRUE.equals(safe.get("top"));
+            WindowSetup.dragSafeRight = Boolean.TRUE.equals(safe.get("right"));
+            WindowSetup.dragSafeBottom = Boolean.TRUE.equals(safe.get("bottom"));
+            WindowSetup.safeAreaFallbackTopPx = num(safe, "fallbackTop");
+        }
         result.success(true);
+    }
+
+    private static int num(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v instanceof Number ? (int) Math.round(((Number) v).doubleValue()) : 0;
+    }
+
+    /**
+     * Pikmin fork addition (dynamic drag safe area): re-reads the
+     * screen-level {@link SystemSafeArea}. Triggered by attach, the view's
+     * insets dispatch, {@link #onConfigurationChanged} and every
+     * ACTION_DOWN (one cheap read per gesture — covers a navigation-mode
+     * switch even if no callback reached this small window). Logs only
+     * when the value changed, or always for the non-touch triggers.
+     */
+    private void refreshSafeArea(String reason) {
+        SystemSafeArea next = SystemSafeArea.compute(this, WindowSetup.safeAreaFallbackTopPx);
+        boolean changed = !next.sameAs(safeArea);
+        safeArea = next;
+        // insets/down fire often (the insets one on every move near an
+        // edge), so those only log real changes.
+        if (changed || reason.equals("attach") || reason.equals("config")) {
+            Log.d("PIKMIN_SAFE", "refresh reason=" + reason + " changed=" + changed + " " + next);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (windowManager != null) {
+            refreshSafeArea("config");
+        }
     }
 
     /**
@@ -540,6 +601,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     anchorParamY = params.y;
                     lastAppliedX = params.x;
                     lastAppliedY = params.y;
+                    boundsLoggedThisGesture = false;
+                    if (WindowSetup.dragSafeContentRect != null) {
+                        refreshSafeArea("down");
+                    }
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (touchInExclusionZone) {
@@ -585,6 +650,35 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     }
                     if (WindowSetup.dragMinYPx != Integer.MIN_VALUE) {
                         yy = Math.max(yy, WindowSetup.dragMinYPx);
+                    }
+                    // Pikmin fork addition (dynamic drag safe area): keep the
+                    // content rect inside the system safe area on the flagged
+                    // edges; max first so min wins when the area is too small.
+                    Rect content = WindowSetup.dragSafeContentRect;
+                    if (content != null && safeArea != null) {
+                        Rect safe = safeArea.safeRect();
+                        int sMinX = safe.left - content.left;
+                        int sMaxX = safe.right - content.right;
+                        int sMinY = safe.top - content.top;
+                        int sMaxY = safe.bottom - content.bottom;
+                        if (WindowSetup.dragSafeRight) xx = Math.min(xx, sMaxX);
+                        if (WindowSetup.dragSafeLeft) xx = Math.max(xx, sMinX);
+                        if (WindowSetup.dragSafeBottom) yy = Math.min(yy, sMaxY);
+                        if (WindowSetup.dragSafeTop) yy = Math.max(yy, sMinY);
+                        if (!boundsLoggedThisGesture) {
+                            boundsLoggedThisGesture = true;
+                            Log.d("PIKMIN_SAFE", "drag bounds window=" + params.width + "x" + params.height
+                                    + " content=" + content.toShortString()
+                                    + " edges=" + (WindowSetup.dragSafeLeft ? "L" : "")
+                                    + (WindowSetup.dragSafeTop ? "T" : "")
+                                    + (WindowSetup.dragSafeRight ? "R" : "")
+                                    + (WindowSetup.dragSafeBottom ? "B" : "")
+                                    + " minX=" + (WindowSetup.dragSafeLeft ? sMinX : WindowSetup.dragMinXPx)
+                                    + " maxX=" + (WindowSetup.dragSafeRight ? sMaxX : WindowSetup.dragMaxXPx)
+                                    + " minY=" + (WindowSetup.dragSafeTop ? sMinY : WindowSetup.dragMinYPx)
+                                    + " maxY=" + (WindowSetup.dragSafeBottom ? sMaxY : "none")
+                                    + " safe=" + safe.toShortString());
+                        }
                     }
                     params.x = xx;
                     params.y = yy;

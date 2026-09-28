@@ -121,6 +121,25 @@ public class FlutterOverlayWindowPlugin implements
             result.success(OverlayService.moveOverlay(x, y));
         } else if (call.method.equals("getOverlayPosition")) {
             result.success(OverlayService.getCurrentPosition());
+        } else if (call.method.equals("getSystemSafeArea")) {
+            // Pikmin fork addition (dynamic drag safe area): same source as
+            // OverlayService's drag clamp, for the main isolate's own
+            // restore / after-release corrections. Returned in dp.
+            Number fallbackTopDp = call.argument("fallbackTopDp");
+            float density = context.getResources().getDisplayMetrics().density;
+            int fallbackTopPx = fallbackTopDp == null ? 0
+                    : (int) Math.ceil(fallbackTopDp.doubleValue() * density);
+            SystemSafeArea area = SystemSafeArea.compute(
+                    context, fallbackTopPx);
+            Log.d("PIKMIN_SAFE", "main getSystemSafeArea " + area);
+            android.graphics.Rect safe = area.safeRect();
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("left", safe.left / (double) density);
+            map.put("top", safe.top / (double) density);
+            map.put("right", safe.right / (double) density);
+            map.put("bottom", safe.bottom / (double) density);
+            map.put("source", area.source);
+            result.success(map);
         } else if (call.method.equals("closeOverlay")) {
             if (OverlayService.isRunning) {
                 final Intent i = new Intent(context, OverlayService.class);

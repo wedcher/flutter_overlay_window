@@ -188,8 +188,15 @@ class FlutterOverlayWindow {
   /// (e.g. a wide panel) should pass only [minYPx]. Omitting a param
   /// resets that one axis back to unclamped (native "unset" sentinel),
   /// it does not leave a previous value in place — call again with all
-  /// three omitted to fully clear. Deliberately no `maxYPx`/bottom clamp
-  /// — this fork does not touch bottom-edge behavior.
+  /// three omitted to fully clear. There is no absolute `maxYPx`; the
+  /// bottom edge is clamped only through [safeArea].
+  ///
+  /// [safeArea] (optional): keep [DragSafeArea.contentPx] inside the
+  /// Android system safe area (bars, cutout, mandatory gesture zones) on
+  /// the flagged edges. Native reads that area itself (WindowMetrics) and
+  /// keeps it fresh on attach / config / insets changes and on every touch
+  /// down, so no per-drag Dart round trip is needed. Applied on top of —
+  /// never looser than — the absolute bounds. Omitted = rule off.
   ///
   /// Same physical-px, window-relative coordinate space as
   /// [setDragExclusionRects] (multiply logical px by `devicePixelRatio`
@@ -199,6 +206,7 @@ class FlutterOverlayWindow {
     double? minYPx,
     double? minXPx,
     double? maxXPx,
+    DragSafeArea? safeArea,
   }) async {
     final bool? _res = await _overlayChannel.invokeMethod<bool?>(
       'setDragBounds',
@@ -207,10 +215,33 @@ class FlutterOverlayWindow {
           if (minYPx != null) 'minY': minYPx,
           if (minXPx != null) 'minX': minXPx,
           if (maxXPx != null) 'maxX': maxXPx,
+          if (safeArea != null) 'safeArea': safeArea.toMap(),
         },
       },
     );
     return _res;
+  }
+
+  /// **Pikmin fork addition (dynamic drag safe area)**: the screen-level
+  /// safe rectangle (dp, screen coordinates — same space as
+  /// [moveOverlay]/[getOverlayPosition]) native uses for [setDragBounds]'
+  /// safe-area rule. Callable from the main app isolate. [fallbackTopDp]
+  /// is used only when the insets can't be read (Android < 11).
+  static Future<SystemSafeRect?> getSystemSafeArea({
+    double fallbackTopDp = 0,
+  }) async {
+    final res = await _channel.invokeMapMethod<String, dynamic>(
+      'getSystemSafeArea',
+      {'fallbackTopDp': fallbackTopDp},
+    );
+    if (res == null) return null;
+    return SystemSafeRect(
+      left: (res['left'] as num).toDouble(),
+      top: (res['top'] as num).toDouble(),
+      right: (res['right'] as num).toDouble(),
+      bottom: (res['bottom'] as num).toDouble(),
+      source: res['source'] as String? ?? '',
+    );
   }
 
   /// **Pikmin fork addition (checkpoint 1b — native -> overlay isolate
@@ -287,4 +318,63 @@ class FlutterOverlayWindow {
   static void disposeOverlayListener() {
     _controller.close();
   }
+}
+
+/// **Pikmin fork addition**: rule for [FlutterOverlayWindow.setDragBounds]'
+/// `safeArea`. [contentPx] is physical px relative to the overlay window's
+/// own top-left (e.g. the ball inside an enlarged window).
+class DragSafeArea {
+  const DragSafeArea({
+    required this.contentPx,
+    this.left = false,
+    this.top = false,
+    this.right = false,
+    this.bottom = false,
+    this.fallbackTopPx = 0,
+  });
+
+  final Rect contentPx;
+  final bool left;
+  final bool top;
+  final bool right;
+  final bool bottom;
+
+  /// Top protection used only when native can't read the insets.
+  final double fallbackTopPx;
+
+  Map<String, dynamic> toMap() => {
+        'contentLeft': contentPx.left,
+        'contentTop': contentPx.top,
+        'contentRight': contentPx.right,
+        'contentBottom': contentPx.bottom,
+        'left': left,
+        'top': top,
+        'right': right,
+        'bottom': bottom,
+        'fallbackTop': fallbackTopPx,
+      };
+}
+
+/// **Pikmin fork addition**: result of
+/// [FlutterOverlayWindow.getSystemSafeArea] — dp, screen coordinates.
+class SystemSafeRect {
+  const SystemSafeRect({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.source,
+  });
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  /// `metrics` (WindowMetrics insets) or `fallback`.
+  final String source;
+
+  @override
+  String toString() => 'SystemSafeRect(l=$left t=$top r=$right b=$bottom '
+      'source=$source)';
 }
