@@ -21,8 +21,10 @@ import android.util.Log;
 import android.util.TypedValue;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
@@ -70,6 +72,36 @@ public class OverlayService extends Service implements View.OnTouchListener {
     private float lastX, lastY;
     private int lastYPosition;
     private boolean dragging;
+    /**
+     * Pikmin fork addition: native drag start threshold, in physical px.
+     * Upstream hard-coded 5px (~2dp), so natural finger jitter during a
+     * stationary long-press started a drag (moved the window) and the
+     * consuming app's long-press gesture got cancelled. Uses the platform
+     * standard {@link ViewConfiguration#getScaledTouchSlop()} (8dp)
+     * instead; read once in {@code onStartCommand}.
+     */
+    private int touchSlopPx = 5;
+    /**
+     * Pikmin fork addition (absolute drag mapping): finger raw position and
+     * window position at ACTION_DOWN. ACTION_MOVE places the window at
+     * {@code anchorParam + (raw - downRaw)} and then clamps, instead of
+     * upstream's per-event {@code params += (int) delta}. The incremental
+     * version (1) truncated every sub-pixel delta and then advanced lastX,
+     * so a slow drag steadily fell behind the finger, and (2) kept
+     * advancing lastX while the window was clamped at a bound, leaving a
+     * permanent finger/window gap after the finger came back.
+     */
+    private float downRawX, downRawY;
+    private int anchorParamX, anchorParamY;
+    /**
+     * Pikmin fork addition: the window position this gesture last applied.
+     * If params differ at the next ACTION_MOVE, the app moved the window
+     * mid-gesture (e.g. the consuming app's long-press close-X mode shifts
+     * the window origin while the finger is still down) — the anchor is
+     * shifted by the same amount so the drag continues from where the
+     * window actually is instead of jumping back.
+     */
+    private int lastAppliedX, lastAppliedY;
     /**
      * Pikmin fork addition: whether the touch-down point of the CURRENT
      * gesture fell inside one of {@link WindowSetup#dragExclusionRects}.
@@ -131,6 +163,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
             stopSelf();
         }
         isRunning = true;
+        touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
         Log.d("onStartCommand", "Service started");
         FlutterEngine engine = FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG);
         engine.getLifecycleChannel().appIsResumed();
@@ -159,6 +192,15 @@ public class OverlayService extends Service implements View.OnTouchListener {
             } else if (call.method.equals("setDragBounds")) {
                 Map<String, Double> bounds = call.argument("bounds");
                 setDragBounds(bounds, result);
+            } else if (call.method.equals("performLongPressHaptic")) {
+                // Pikmin fork addition: Flutter's HapticFeedback is a no-op
+                // in this Service-hosted engine (no Activity PlatformPlugin),
+                // so the overlay asks the overlay view itself. Standard
+                // LONG_PRESS constant, honours the system touch-feedback
+                // setting, needs no VIBRATE permission.
+                boolean ok = flutterView != null
+                        && flutterView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                result.success(ok);
             }
         });
         overlayMessageChannel.setMessageHandler((message, reply) -> {
@@ -492,26 +534,37 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     touchInExclusionZone = isInDragExclusionZone(event.getX(), event.getY());
                     lastX = event.getRawX();
                     lastY = event.getRawY();
+                    downRawX = lastX;
+                    downRawY = lastY;
+                    anchorParamX = params.x;
+                    anchorParamY = params.y;
+                    lastAppliedX = params.x;
+                    lastAppliedY = params.y;
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (touchInExclusionZone) {
                         return false;
                     }
-                    float dx = event.getRawX() - lastX;
-                    float dy = event.getRawY() - lastY;
-                    if (!dragging && dx * dx + dy * dy < 25) {
+                    float dx = event.getRawX() - downRawX;
+                    float dy = event.getRawY() - downRawY;
+                    if (!dragging && dx * dx + dy * dy < touchSlopPx * touchSlopPx) {
                         return false;
                     }
                     lastX = event.getRawX();
                     lastY = event.getRawY();
+                    // See lastAppliedX doc: app moved the window mid-gesture.
+                    if (params.x != lastAppliedX || params.y != lastAppliedY) {
+                        anchorParamX += params.x - lastAppliedX;
+                        anchorParamY += params.y - lastAppliedY;
+                    }
                     boolean invertX = WindowSetup.gravity == (Gravity.TOP | Gravity.RIGHT)
                             || WindowSetup.gravity == (Gravity.CENTER | Gravity.RIGHT)
                             || WindowSetup.gravity == (Gravity.BOTTOM | Gravity.RIGHT);
                     boolean invertY = WindowSetup.gravity == (Gravity.BOTTOM | Gravity.LEFT)
                             || WindowSetup.gravity == Gravity.BOTTOM
                             || WindowSetup.gravity == (Gravity.BOTTOM | Gravity.RIGHT);
-                    int xx = params.x + ((int) dx * (invertX ? -1 : 1));
-                    int yy = params.y + ((int) dy * (invertY ? -1 : 1));
+                    int xx = anchorParamX + Math.round(dx) * (invertX ? -1 : 1);
+                    int yy = anchorParamY + Math.round(dy) * (invertY ? -1 : 1);
                     // Pikmin fork addition (top/left/right drag bounds):
                     // clamp DURING the gesture, before the value is ever
                     // applied — this is intentionally different from the
@@ -535,6 +588,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     }
                     params.x = xx;
                     params.y = yy;
+                    lastAppliedX = xx;
+                    lastAppliedY = yy;
                     if (windowManager != null) {
                         windowManager.updateViewLayout(flutterView, params);
                     }
