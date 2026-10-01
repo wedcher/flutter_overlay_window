@@ -251,6 +251,13 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 info.put("restored", restoredFromKill);
                 info.put("restoredAt", restoredAt);
                 info.put("reason", restoredFromKill ? "process_restart" : "none");
+                // In a process the service itself started (restore), Flutter's
+                // Display info is never filled in (dart:ui reports -1x-1@-1),
+                // so hand Dart the real physical screen size here.
+                Point real = realScreenSizePx();
+                info.put("screenWidthPx", real.x);
+                info.put("screenHeightPx", real.y);
+                info.put("density", (double) getResources().getDisplayMetrics().density);
                 result.success(info);
             } else if (call.method.equals("performLongPressHaptic")) {
                 // Pikmin fork addition: Flutter's HapticFeedback is a no-op
@@ -380,6 +387,21 @@ public class OverlayService extends Service implements View.OnTouchListener {
         } else {
             result.success(false);
         }
+    }
+
+    /** Pikmin fork addition (B39): full physical screen size in px. */
+    private Point realScreenSizePx() {
+        WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        Point p = new Point();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect b = wm.getMaximumWindowMetrics().getBounds();
+            p.set(b.width(), b.height());
+        } else {
+            DisplayMetrics dm = new DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(dm);
+            p.set(dm.widthPixels, dm.heightPixels);
+        }
+        return p;
     }
 
     private void resizeOverlay(int width, int height, boolean enableDrag, MethodChannel.Result result) {

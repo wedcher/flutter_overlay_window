@@ -97,8 +97,10 @@ public final class RestoreState {
     static void saveBasePositionIfBaseSize(Context context, WindowManager.LayoutParams params) {
         SharedPreferences p = prefs(context);
         if (!p.getBoolean(K_ACTIVE, false)) return;
-        if (params.width != p.getInt(K_WIDTH, Integer.MIN_VALUE)
-                || params.height != p.getInt(K_HEIGHT, Integer.MIN_VALUE)) {
+        // +-2px: the consuming app's resize-to-ball path rounds dp->px a hair
+        // differently from showOverlay (Pixel 3a XL: 132 vs 133).
+        if (Math.abs(params.width - p.getInt(K_WIDTH, Integer.MIN_VALUE / 2)) > 2
+                || Math.abs(params.height - p.getInt(K_HEIGHT, Integer.MIN_VALUE / 2)) > 2) {
             return;
         }
         p.edit()
