@@ -101,6 +101,10 @@ public class FlutterOverlayWindowPlugin implements
             WindowSetup.overlayContent = overlayContent == null ? "" : overlayContent;
             WindowSetup.positionGravity = positionGravity;
             WindowSetup.setNotificationVisibility(notificationVisibility);
+            // Pikmin fork addition (B39): remember this session's window so a
+            // null-intent restart after an unrequested process death can
+            // rebuild a safe one (see RestoreState).
+            RestoreState.saveSession(context);
 
             final Intent intent = new Intent(context, OverlayService.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -141,6 +145,9 @@ public class FlutterOverlayWindowPlugin implements
             map.put("source", area.source);
             result.success(map);
         } else if (call.method.equals("closeOverlay")) {
+            // B39 first layer: an explicit close ends the session BEFORE the
+            // service is stopped, so a later null-intent restart never revives it.
+            RestoreState.clearActive(context);
             if (OverlayService.isRunning) {
                 final Intent i = new Intent(context, OverlayService.class);
                 context.stopService(i);

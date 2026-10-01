@@ -61,6 +61,14 @@ public class OverlayService extends Service implements View.OnTouchListener {
 
     private static OverlayService instance;
     public static boolean isRunning = false;
+    /**
+     * Pikmin fork addition (B39): true when this service instance was brought
+     * back by Android after a process death it was not asked to stop for
+     * (null-intent START_STICKY restart that passed {@link RestoreState}'s
+     * checks). Reported to Dart through {@code getRestoreInfo}.
+     */
+    private boolean restoredFromKill = false;
+    private long restoredAt = 0L;
     private WindowManager windowManager = null;
     private FlutterView flutterView;
     private MethodChannel flutterChannel;
@@ -131,6 +139,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
     @Override
     public void onDestroy() {
         Log.d("OverLay", "Destroying the overlay window service");
+        // B39 second layer only: explicit close paths already cleared it
+        // synchronously before stopping the service; a kill/crash never
+        // reaches here, which is exactly what keeps a restore possible.
+        RestoreState.clearActive(this);
         if (windowManager != null) {
             windowManager.removeView(flutterView);
             windowManager = null;
@@ -147,10 +159,46 @@ public class OverlayService extends Service implements View.OnTouchListener {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         mResources = getApplicationContext().getResources();
-        int startX = intent.getIntExtra("startX", OverlayConstants.DEFAULT_XY);
-        int startY = intent.getIntExtra("startY", OverlayConstants.DEFAULT_XY);
-        boolean isCloseWindow = intent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
+        // Pikmin fork addition (B39): a null intent means Android restarted
+        // this START_STICKY service after the whole process died. Restore
+        // only if the player still had the overlay on, the saved window is
+        // a safe explicit size (never the MATCH_PARENT defaults), and we did
+        // not just restore (crash-loop guard). Otherwise stop cleanly instead
+        // of the upstream NPE ("keeps stopping" dialog).
+        RestoreState.Snapshot restoreSnapshot = null;
+        if (intent == null) {
+            RestoreState.Snapshot snap = RestoreState.load(this);
+            long now = System.currentTimeMillis();
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            String refuse = null;
+            if (!snap.active) {
+                refuse = "inactive";
+            } else if (!snap.hasSafeWindowSize(dm.widthPixels, dm.heightPixels)) {
+                refuse = "unsafe-size " + snap.width + "x" + snap.height;
+            } else if (now - snap.lastRestoreAt < RestoreState.RESTORE_COOLDOWN_MS) {
+                refuse = "cooldown";
+                RestoreState.clearActive(this);
+            }
+            if (refuse != null) {
+                Log.d("PikminRestore", "null-intent restart, not restoring (" + refuse + "), stopping");
+                isRunning = false;
+                restoredFromKill = false;
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            RestoreState.markRestored(this, now);
+            snap.applyToWindowSetup();
+            restoreSnapshot = snap;
+            restoredAt = now;
+            Log.d("PikminRestore", "null-intent restart, restoring window " + snap.width + "x" + snap.height
+                    + (snap.hasPos ? " at " + snap.posX + "," + snap.posY : " (no saved position)"));
+        }
+        restoredFromKill = restoreSnapshot != null;
+        int startX = intent != null ? intent.getIntExtra("startX", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
+        int startY = intent != null ? intent.getIntExtra("startY", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
+        boolean isCloseWindow = intent != null && intent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
         if (isCloseWindow) {
+            RestoreState.clearActive(this);
             if (windowManager != null) {
                 windowManager.removeView(flutterView);
                 windowManager = null;
@@ -196,6 +244,14 @@ public class OverlayService extends Service implements View.OnTouchListener {
             } else if (call.method.equals("setDragBounds")) {
                 Map<String, Object> bounds = call.argument("bounds");
                 setDragBounds(bounds, result);
+            } else if (call.method.equals("getRestoreInfo")) {
+                // Pikmin fork addition (B39): map, not bool, so later restore
+                // levels can add fields without changing the protocol.
+                Map<String, Object> info = new HashMap<>();
+                info.put("restored", restoredFromKill);
+                info.put("restoredAt", restoredAt);
+                info.put("reason", restoredFromKill ? "process_restart" : "none");
+                result.success(info);
             } else if (call.method.equals("performLongPressHaptic")) {
                 // Pikmin fork addition: Flutter's HapticFeedback is a no-op
                 // in this Service-hosted engine (no Activity PlatformPlugin),
@@ -257,6 +313,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
         windowManager.addView(flutterView, params);
         refreshSafeArea("attach");
         moveOverlay(dx, dy, null);
+        if (restoreSnapshot != null && restoreSnapshot.hasPos) {
+            // B39: put the restored ball exactly where it last was (raw px).
+            params.x = restoreSnapshot.posX;
+            params.y = restoreSnapshot.posY;
+            windowManager.updateViewLayout(flutterView, params);
+        }
         return START_STICKY;
     }
 
@@ -461,6 +523,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
             params.x = (x == -1999 || x == -1) ? -1 : dpToPx(x);
             params.y = dpToPx(y);
             windowManager.updateViewLayout(flutterView, params);
+            RestoreState.saveBasePositionIfBaseSize(this, params);
             if (result != null)
                 result.success(true);
         } else {
@@ -488,6 +551,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 params.x = (x == -1999 || x == -1) ? -1 : instance.dpToPx(x);
                 params.y = instance.dpToPx(y);
                 instance.windowManager.updateViewLayout(instance.flutterView, params);
+                RestoreState.saveBasePositionIfBaseSize(instance, params);
                 return true;
             } else {
                 return false;
@@ -719,6 +783,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
                         listDragEndedArgs.put("x", (double) params.x);
                         listDragEndedArgs.put("y", (double) params.y);
                         flutterChannel.invokeMethod("listDragEnded", listDragEndedArgs);
+                        RestoreState.saveBasePositionIfBaseSize(this, params);
                     }
                     if (!WindowSetup.positionGravity.equals("none")) {
                         if (windowManager == null) return false;
