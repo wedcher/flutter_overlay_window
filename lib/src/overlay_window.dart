@@ -89,6 +89,18 @@ class FlutterOverlayWindow {
     }
   }
 
+  /// Pikmin fork addition: temporarily hide (fully transparent, not
+  /// touchable) or show again the overlay window WITHOUT closing it — e.g.
+  /// while the app's own gallery picker is on screen. Callable from the
+  /// app's main engine. Returns false when no overlay window exists.
+  static Future<bool> setOverlayHidden(bool hidden) async {
+    final bool? res = await _channel.invokeMethod<bool?>(
+      'setOverlayHidden',
+      {'hidden': hidden},
+    );
+    return res ?? false;
+  }
+
   /// Closes overlay if open
   static Future<bool?> closeOverlay() async {
     final bool? _res = await _channel.invokeMethod('closeOverlay');

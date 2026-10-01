@@ -144,6 +144,11 @@ public class FlutterOverlayWindowPlugin implements
             map.put("bottom", safe.bottom / (double) density);
             map.put("source", area.source);
             result.success(map);
+        } else if (call.method.equals("setOverlayHidden")) {
+            // Pikmin fork addition: temporary hide (e.g. app's gallery picker
+            // on screen) — not a close; overlay session state is untouched.
+            Boolean hidden = call.argument("hidden");
+            result.success(OverlayService.setTemporarilyHidden(hidden != null && hidden));
         } else if (call.method.equals("closeOverlay")) {
             // B39 first layer: an explicit close ends the session BEFORE the
             // service is stopped, so a later null-intent restart never revives it.

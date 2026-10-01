@@ -69,6 +69,16 @@ public class OverlayService extends Service implements View.OnTouchListener {
      */
     private boolean restoredFromKill = false;
     private long restoredAt = 0L;
+    /**
+     * Pikmin fork addition: temporary hide requested by the app (e.g. while
+     * its own gallery picker is on screen). Window stays where it is with
+     * the same size; it is only made fully transparent and non-touchable,
+     * so nothing about the overlay session (on/off, restore state, saved
+     * position) changes.
+     */
+    private boolean temporarilyHidden = false;
+    private float alphaBeforeHide = 1f;
+    private boolean addedNotTouchable = false;
     private WindowManager windowManager = null;
     private FlutterView flutterView;
     private MethodChannel flutterChannel;
@@ -387,6 +397,31 @@ public class OverlayService extends Service implements View.OnTouchListener {
         } else {
             result.success(false);
         }
+    }
+
+    /**
+     * Pikmin fork addition: hide / unhide the overlay window without closing
+     * it. Called from the app's main engine through the plugin channel.
+     * Idempotent. Returns false when no overlay window exists.
+     */
+    public static boolean setTemporarilyHidden(boolean hidden) {
+        OverlayService s = instance;
+        if (s == null || s.windowManager == null || s.flutterView == null) return false;
+        if (s.temporarilyHidden == hidden) return true;
+        WindowManager.LayoutParams p = (WindowManager.LayoutParams) s.flutterView.getLayoutParams();
+        if (hidden) {
+            s.alphaBeforeHide = p.alpha;
+            s.addedNotTouchable = (p.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0;
+            p.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            p.alpha = 0f;
+        } else {
+            if (s.addedNotTouchable) p.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            p.alpha = s.alphaBeforeHide;
+        }
+        s.temporarilyHidden = hidden;
+        s.windowManager.updateViewLayout(s.flutterView, p);
+        Log.d("OverLay", "Pikmin fork: overlay temporarily " + (hidden ? "hidden" : "shown"));
+        return true;
     }
 
     /** Pikmin fork addition (B39): full physical screen size in px. */
