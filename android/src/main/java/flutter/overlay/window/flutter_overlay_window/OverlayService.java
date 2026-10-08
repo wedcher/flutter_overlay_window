@@ -697,35 +697,50 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return mResources.getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
     }
 
+    /**
+     * ACTION_DOWN bookkeeping for one gesture (see {@link #onTouch}).
+     * Pikmin fork addition: classify the WHOLE upcoming gesture right here,
+     * once, using view-relative (event.getX()/getY(), NOT getRawX()/getRawY())
+     * coordinates — this is the same coordinate space Dart's
+     * RenderBox.localToGlobal() produces for a widget inside THIS window, so
+     * no absolute-screen position lookup is needed on either side. Every
+     * other case in onTouch only ever READS this field for the rest of the
+     * gesture, never recomputes it.
+     */
+    private void recordGestureDown(MotionEvent event, WindowManager.LayoutParams params) {
+        dragging = false;
+        touchInExclusionZone = isInDragExclusionZone(event.getX(), event.getY());
+        lastX = event.getRawX();
+        lastY = event.getRawY();
+        downRawX = lastX;
+        downRawY = lastY;
+        anchorParamX = params.x;
+        anchorParamY = params.y;
+        lastAppliedX = params.x;
+        lastAppliedY = params.y;
+        boundsLoggedThisGesture = false;
+        if (WindowSetup.dragSafeContentRect != null) {
+            refreshSafeArea("down");
+        }
+    }
+
     @Override
     public boolean onTouch(View view, MotionEvent event) {
+        // Pikmin fork addition (drag armed mid-gesture): record ACTION_DOWN
+        // even while enableDrag is false, so the app can turn dragging on
+        // during a press (resizeOverlay(..., true) after a long-press) and
+        // the same finger keeps dragging without lifting. ACTION_MOVE/UP
+        // below are still gated by enableDrag exactly as before.
+        if (windowManager != null && !WindowSetup.enableDrag
+                && event.getAction() == MotionEvent.ACTION_DOWN) {
+            recordGestureDown(event, (WindowManager.LayoutParams) flutterView.getLayoutParams());
+            return false;
+        }
         if (windowManager != null && WindowSetup.enableDrag) {
             WindowManager.LayoutParams params = (WindowManager.LayoutParams) flutterView.getLayoutParams();
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    dragging = false;
-                    // Pikmin fork addition: classify the WHOLE upcoming
-                    // gesture right here, once, using view-relative
-                    // (event.getX()/getY(), NOT getRawX()/getRawY())
-                    // coordinates — this is the same coordinate space
-                    // Dart's RenderBox.localToGlobal() produces for a
-                    // widget inside THIS window, so no absolute-screen
-                    // position lookup is needed on either side. Every
-                    // other case below only ever READS this field for the
-                    // rest of the gesture, never recomputes it.
-                    touchInExclusionZone = isInDragExclusionZone(event.getX(), event.getY());
-                    lastX = event.getRawX();
-                    lastY = event.getRawY();
-                    downRawX = lastX;
-                    downRawY = lastY;
-                    anchorParamX = params.x;
-                    anchorParamY = params.y;
-                    lastAppliedX = params.x;
-                    lastAppliedY = params.y;
-                    boundsLoggedThisGesture = false;
-                    if (WindowSetup.dragSafeContentRect != null) {
-                        refreshSafeArea("down");
-                    }
+                    recordGestureDown(event, params);
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (touchInExclusionZone) {
