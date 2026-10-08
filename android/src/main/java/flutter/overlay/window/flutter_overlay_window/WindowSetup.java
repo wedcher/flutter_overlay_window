@@ -68,6 +68,15 @@ public abstract class WindowSetup {
     /** Top protection used only when insets can't be read (API &lt; 30). */
     static int safeAreaFallbackTopPx = 0;
 
+    /**
+     * Pikmin fork addition (2026-10-09): drag threshold in px for the next
+     * gestures; <= 0 means the system touch slop. Lets one view (the app's
+     * mini-card "move mode") require a deliberate drag so finger jitter after
+     * a long-press doesn't move the window. Static like the other drag
+     * settings, so the app must reset it (-1) when leaving that view.
+     */
+    static int dragSlopPx = -1;
+
 
     static void setNotificationVisibility(String name) {
         if (name.equalsIgnoreCase("visibilityPublic")) {

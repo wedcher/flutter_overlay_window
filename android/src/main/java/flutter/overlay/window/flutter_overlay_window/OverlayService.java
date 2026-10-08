@@ -251,6 +251,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
             } else if (call.method.equals("setDragExclusionRects")) {
                 List<Map<String, Double>> rects = call.argument("rects");
                 setDragExclusionRects(rects, result);
+            } else if (call.method.equals("setDragSlop")) {
+                Number px = call.argument("px");
+                WindowSetup.dragSlopPx = px == null ? -1 : px.intValue();
+                result.success(true);
             } else if (call.method.equals("setDragBounds")) {
                 Map<String, Object> bounds = call.argument("bounds");
                 setDragBounds(bounds, result);
@@ -772,7 +776,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     }
                     float dx = event.getRawX() - downRawX;
                     float dy = event.getRawY() - downRawY;
-                    if (!dragging && dx * dx + dy * dy < touchSlopPx * touchSlopPx) {
+                    int slop = WindowSetup.dragSlopPx > 0 ? WindowSetup.dragSlopPx : touchSlopPx;
+                    if (!dragging && dx * dx + dy * dy < (float) slop * slop) {
                         return false;
                     }
                     lastX = event.getRawX();

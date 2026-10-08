@@ -214,6 +214,14 @@ class FlutterOverlayWindow {
   /// [setDragExclusionRects] (multiply logical px by `devicePixelRatio`
   /// yourself before calling). Only callable from the overlay isolate's
   /// own engine, same as [setDragExclusionRects]/[resizeOverlay].
+  /// Pikmin fork addition (2026-10-09): drag threshold (physical px) for this
+  /// overlay's native drag; `null`/<= 0 restores the system touch slop.
+  /// Static native state like [setDragBounds] — reset it when leaving the
+  /// view that needed it. Only callable from the overlay isolate's engine.
+  static Future<bool?> setDragSlop(int? px) async {
+    return _overlayChannel.invokeMethod<bool?>('setDragSlop', {'px': px ?? -1});
+  }
+
   static Future<bool?> setDragBounds({
     double? minYPx,
     double? minXPx,
