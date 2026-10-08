@@ -392,6 +392,15 @@ public class OverlayService extends Service implements View.OnTouchListener {
             } else {
                 params.alpha = 1;
             }
+            // Pikmin fork addition (2026-10-08): an updateFlag from the overlay
+            // engine while temporarily hidden must not make the window
+            // visible/touchable/focusable again; remember the new values for
+            // unhide instead.
+            if (temporarilyHidden) {
+                alphaBeforeHide = params.alpha;
+                addedNotTouchable = (params.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0;
+                applyHiddenFlags(params);
+            }
             windowManager.updateViewLayout(flutterView, params);
             result.success(true);
         } else {
@@ -412,16 +421,31 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (hidden) {
             s.alphaBeforeHide = p.alpha;
             s.addedNotTouchable = (p.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0;
-            p.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-            p.alpha = 0f;
+            applyHiddenFlags(p);
         } else {
             if (s.addedNotTouchable) p.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            // Pikmin fork addition (2026-10-08): hidden windows are also made
+            // NOT_FOCUSABLE so a hidden overlay that was focusable (e.g. a
+            // text field being edited) stops holding the IME — otherwise
+            // keys typed into the app go into the invisible field. Restore
+            // focusability from the app's current flag setting, not from a
+            // snapshot, in case the app changed it via updateFlag meanwhile.
+            if ((WindowSetup.flag & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
+                p.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            }
             p.alpha = s.alphaBeforeHide;
         }
         s.temporarilyHidden = hidden;
         s.windowManager.updateViewLayout(s.flutterView, p);
         Log.d("OverLay", "Pikmin fork: overlay temporarily " + (hidden ? "hidden" : "shown"));
         return true;
+    }
+
+    /** Hidden = invisible, untouchable and unfocusable (see setTemporarilyHidden). */
+    private static void applyHiddenFlags(WindowManager.LayoutParams p) {
+        p.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        p.alpha = 0f;
     }
 
     /** Pikmin fork addition (B39): full physical screen size in px. */
