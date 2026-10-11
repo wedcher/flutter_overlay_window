@@ -282,6 +282,15 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 boolean ok = flutterView != null
                         && flutterView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 result.success(ok);
+            } else if (call.method.equals("performHapticFeedback")) {
+                // Pikmin fork addition: same as performLongPressHaptic but the
+                // caller picks the HapticFeedbackConstants value (int). Still a
+                // system haptic on the overlay view: honours the touch-feedback
+                // setting, no VIBRATE permission.
+                Object arg = call.arguments;
+                boolean ok = flutterView != null && arg instanceof Integer
+                        && flutterView.performHapticFeedback((Integer) arg);
+                result.success(ok);
             }
         });
         overlayMessageChannel.setMessageHandler((message, reply) -> {
