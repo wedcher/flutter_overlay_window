@@ -329,6 +329,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
         // apply instantly instead of visibly sliding across the screen.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             params.setCanPlayMoveAnimation(false);
+        } else {
+            // Pikmin fork addition (B74): API 32 and below have no public API,
+            // so set the same hidden bit via reflection.
+            disableMoveAnimationLegacy(params);
         }
         params.gravity = WindowSetup.gravity;
         flutterView.setOnTouchListener(this);
@@ -352,6 +356,21 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return START_STICKY;
     }
 
+
+    // Pikmin fork addition (B74): WindowManager.LayoutParams
+    // PRIVATE_FLAG_NO_MOVE_ANIMATION, the bit setCanPlayMoveAnimation(false)
+    // sets on API 33+. Reflection on privateFlags is allowed (logged only) on
+    // API 28-32; on failure the window just keeps sliding as before.
+    private static final int PRIVATE_FLAG_NO_MOVE_ANIMATION = 0x00000040;
+
+    private static void disableMoveAnimationLegacy(WindowManager.LayoutParams params) {
+        try {
+            java.lang.reflect.Field f = WindowManager.LayoutParams.class.getField("privateFlags");
+            f.setInt(params, f.getInt(params) | PRIVATE_FLAG_NO_MOVE_ANIMATION);
+        } catch (Throwable t) {
+            Log.w("PikminB74", "disableMoveAnimationLegacy failed: " + t);
+        }
+    }
 
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     private int screenHeight() {
