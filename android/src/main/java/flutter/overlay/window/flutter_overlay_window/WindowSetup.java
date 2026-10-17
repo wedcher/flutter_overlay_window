@@ -101,6 +101,13 @@ public abstract class WindowSetup {
         if (name.equalsIgnoreCase("flagNotTouchModal") || name.equalsIgnoreCase("focusPointer")) {
             flag = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
         }
+        // Pikmin fork addition (B90, 2026-10-17): focusable (keyboard can
+        // show) AND touch-modal -- without FLAG_NOT_TOUCH_MODAL the window
+        // consumes every pointer event, including touches outside its
+        // bounds, so nothing behind the overlay can be tapped meanwhile.
+        if (name.equalsIgnoreCase("focusModal")) {
+            flag = 0;
+        }
     }
 
     static void showWhenLocked(String name) {
