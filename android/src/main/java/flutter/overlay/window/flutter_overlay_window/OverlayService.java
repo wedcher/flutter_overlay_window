@@ -724,6 +724,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 .setSmallIcon(notifyIcon == 0 ? R.drawable.notification_icon : notifyIcon)
                 .setContentIntent(pendingIntent)
                 .setVisibility(WindowSetup.notificationVisibility)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
                 .build();
         startForeground(OverlayConstants.NOTIFICATION_ID, notification);
         instance = this;
@@ -734,10 +736,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
             NotificationChannel serviceChannel = new NotificationChannel(
                     OverlayConstants.CHANNEL_ID,
                     WindowSetup.channelName,
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_LOW
             );
+            serviceChannel.setShowBadge(false);
             NotificationManager manager = getSystemService(NotificationManager.class);
             assert manager != null;
+            manager.deleteNotificationChannel(OverlayConstants.LEGACY_CHANNEL_ID);
             manager.createNotificationChannel(serviceChannel);
         }
     }
