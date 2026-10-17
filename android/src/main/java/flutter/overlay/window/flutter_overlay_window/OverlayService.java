@@ -683,7 +683,13 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
 
         createNotificationChannel();
-        Intent notificationIntent = new Intent(this, FlutterOverlayWindowPlugin.class);
+        // Pikmin fork fix (B73): upstream pointed this at the plugin class, which
+        // is not an Activity, so tapping the notification did nothing. Open the
+        // host app's launcher activity instead.
+        Intent notificationIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (notificationIntent == null) {
+            notificationIntent = new Intent();
+        }
         int pendingFlags;
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             pendingFlags = PendingIntent.FLAG_IMMUTABLE;
@@ -708,7 +714,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
                     OverlayConstants.CHANNEL_ID,
-                    "Foreground Service Channel",
+                    WindowSetup.channelName,
                     NotificationManager.IMPORTANCE_DEFAULT
             );
             NotificationManager manager = getSystemService(NotificationManager.class);

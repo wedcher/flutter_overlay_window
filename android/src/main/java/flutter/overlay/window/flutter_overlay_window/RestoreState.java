@@ -48,6 +48,7 @@ public final class RestoreState {
     private static final String K_POSITION_GRAVITY = "positionGravity";
     private static final String K_TITLE = "overlayTitle";
     private static final String K_CONTENT = "overlayContent";
+    private static final String K_CHANNEL_NAME = "channelName";
     private static final String K_NOTIFICATION_VISIBILITY = "notificationVisibility";
     private static final String K_HAS_POS = "hasPos";
     private static final String K_POS_X = "posX";
@@ -76,6 +77,7 @@ public final class RestoreState {
                 .putString(K_POSITION_GRAVITY, WindowSetup.positionGravity)
                 .putString(K_TITLE, WindowSetup.overlayTitle)
                 .putString(K_CONTENT, WindowSetup.overlayContent)
+                .putString(K_CHANNEL_NAME, WindowSetup.channelName)
                 .putInt(K_NOTIFICATION_VISIBILITY, WindowSetup.notificationVisibility)
                 .putBoolean(K_HAS_POS, false)
                 .commit();
@@ -121,6 +123,7 @@ public final class RestoreState {
         String positionGravity;
         String title;
         String content;
+        String channelName;
         int notificationVisibility;
         boolean hasPos;
         int posX;
@@ -144,6 +147,7 @@ public final class RestoreState {
             WindowSetup.positionGravity = positionGravity != null ? positionGravity : "none";
             WindowSetup.overlayTitle = title;
             WindowSetup.overlayContent = content != null ? content : "";
+            WindowSetup.channelName = channelName != null ? channelName : WindowSetup.DEFAULT_CHANNEL_NAME;
             WindowSetup.notificationVisibility = notificationVisibility;
         }
     }
@@ -160,6 +164,7 @@ public final class RestoreState {
         s.positionGravity = p.getString(K_POSITION_GRAVITY, "none");
         s.title = p.getString(K_TITLE, WindowSetup.overlayTitle);
         s.content = p.getString(K_CONTENT, "");
+        s.channelName = p.getString(K_CHANNEL_NAME, WindowSetup.DEFAULT_CHANNEL_NAME);
         s.notificationVisibility = p.getInt(K_NOTIFICATION_VISIBILITY, WindowSetup.notificationVisibility);
         s.hasPos = p.getBoolean(K_HAS_POS, false);
         s.posX = p.getInt(K_POS_X, 0);

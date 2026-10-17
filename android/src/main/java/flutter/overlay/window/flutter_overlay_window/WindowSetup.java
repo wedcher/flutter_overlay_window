@@ -21,6 +21,9 @@ public abstract class WindowSetup {
     static BasicMessageChannel<Object> messenger = null;
     static String overlayTitle = "Overlay is activated";
     static String overlayContent = "Tap to edit settings or disable";
+    // Pikmin fork addition (B73): caller-chosen notification channel name.
+    static final String DEFAULT_CHANNEL_NAME = "Foreground Service Channel";
+    static String channelName = DEFAULT_CHANNEL_NAME;
     static String positionGravity = "none";
     static int notificationVisibility = NotificationCompat.VISIBILITY_PRIVATE;
     static boolean enableDrag = false;

@@ -84,6 +84,7 @@ public class FlutterOverlayWindowPlugin implements
             String flag = call.argument("flag");
             String overlayTitle = call.argument("overlayTitle");
             String overlayContent = call.argument("overlayContent");
+            String channelName = call.argument("channelName");
             String notificationVisibility = call.argument("notificationVisibility");
             boolean enableDrag = call.argument("enableDrag");
             String positionGravity = call.argument("positionGravity");
@@ -99,6 +100,7 @@ public class FlutterOverlayWindowPlugin implements
             WindowSetup.setFlag(flag != null ? flag : "flagNotFocusable");
             WindowSetup.overlayTitle = overlayTitle;
             WindowSetup.overlayContent = overlayContent == null ? "" : overlayContent;
+            WindowSetup.channelName = channelName == null ? WindowSetup.DEFAULT_CHANNEL_NAME : channelName;
             WindowSetup.positionGravity = positionGravity;
             WindowSetup.setNotificationVisibility(notificationVisibility);
             // Pikmin fork addition (B39): remember this session's window so a

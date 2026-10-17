@@ -34,6 +34,9 @@ class FlutterOverlayWindow {
   ///
   /// `overlayContent` the notification message
   ///
+  /// `channelName` (Pikmin fork) the user-visible name of the foreground
+  /// service notification channel (Android settings); null keeps the default
+  ///
   /// `enableDrag` to enable/disable dragging the overlay over the screen and default is "false"
   ///
   /// `positionGravity` the overlay postion after drag and default is [PositionGravity.none]
@@ -47,6 +50,7 @@ class FlutterOverlayWindow {
     OverlayFlag flag = OverlayFlag.defaultFlag,
     String overlayTitle = "overlay activated",
     String? overlayContent,
+    String? channelName,
     bool enableDrag = false,
     PositionGravity positionGravity = PositionGravity.none,
     OverlayPosition? startPosition,
@@ -60,6 +64,7 @@ class FlutterOverlayWindow {
         "flag": flag.name,
         "overlayTitle": overlayTitle,
         "overlayContent": overlayContent,
+        "channelName": channelName,
         "enableDrag": enableDrag,
         "notificationVisibility": visibility.name,
         "positionGravity": positionGravity.name,
