@@ -61,6 +61,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
 
     private static OverlayService instance;
     public static boolean isRunning = false;
+    // Pikmin fork (B193 #2): set when startForeground() was refused in
+    // onCreate (e.g. Android 12+/15 background-start limits). The service
+    // then stops quietly instead of crashing the whole app process.
+    private boolean foregroundFailed = false;
     /**
      * Pikmin fork addition (B39): true when this service instance was brought
      * back by Android after a process death it was not asked to stop for
@@ -169,6 +173,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         mResources = getApplicationContext().getResources();
+        if (foregroundFailed) {
+            Log.w("OverlayService", "foreground start was refused, stopping without a window");
+            isRunning = false;
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         // Pikmin fork addition (B39): a null intent means Android restarted
         // this START_STICKY service after the whole process died. Restore
         // only if the player still had the overlay on, the saved window is
@@ -219,10 +229,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
             return START_STICKY;
         }
         if (windowManager != null) {
+            // Pikmin fork (B193 #4): a second show while already running only
+            // replaces the window. Upstream called stopSelf() here, which then
+            // destroyed the service together with the window built below.
             windowManager.removeView(flutterView);
             windowManager = null;
             flutterView.detachFromFlutterEngine();
-            stopSelf();
         }
         isRunning = true;
         touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
@@ -291,6 +303,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 boolean ok = flutterView != null && arg instanceof Integer
                         && flutterView.performHapticFeedback((Integer) arg);
                 result.success(ok);
+            } else {
+                result.notImplemented(); // B193 #9
             }
         });
         overlayMessageChannel.setMessageHandler((message, reply) -> {
@@ -499,7 +513,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (windowManager != null) {
             WindowManager.LayoutParams params = (WindowManager.LayoutParams) flutterView.getLayoutParams();
             params.width = (width == -1999 || width == -1) ? -1 : dpToPx(width);
-            params.height = (height != 1999 || height != -1) ? dpToPx(height) : height;
+            params.height = (height == -1999 || height == -1) ? -1 : dpToPx(height); // B193 #8: old check was always true
             WindowSetup.enableDrag = enableDrag;
             windowManager.updateViewLayout(flutterView, params);
             result.success(true);
@@ -727,7 +741,15 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
                 .build();
-        startForeground(OverlayConstants.NOTIFICATION_ID, notification);
+        try {
+            startForeground(OverlayConstants.NOTIFICATION_ID, notification);
+        } catch (Exception e) {
+            // B193 #2: never let a refused foreground start take the app down.
+            Log.e("OverlayService", "startForeground failed, overlay will not open", e);
+            foregroundFailed = true;
+            RestoreState.clearActive(this);
+            return;
+        }
         instance = this;
     }
 

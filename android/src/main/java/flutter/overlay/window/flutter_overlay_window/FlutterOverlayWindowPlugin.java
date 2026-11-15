@@ -42,7 +42,12 @@ public class FlutterOverlayWindowPlugin implements
     private Context context;
     private Activity mActivity;
     private BasicMessageChannel<Object> messenger;
-    private Result pendingResult;
+    // Pikmin fork (B193 #1): only requestPermission keeps its Result for
+    // onActivityResult. Previously every call overwrote one shared field, so
+    // the reply after the settings page went to whichever call came last
+    // (already answered -> "Reply already submitted" crash) and the real
+    // requestPermission caller waited forever.
+    private Result permissionResult;
     final int REQUEST_CODE_FOR_OVERLAY_PERMISSION = 1248;
 
     @Override
@@ -62,13 +67,22 @@ public class FlutterOverlayWindowPlugin implements
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
-        pendingResult = result;
         if (call.method.equals("checkPermission")) {
             result.success(checkOverlayPermission());
         } else if (call.method.equals("requestPermission")) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                if (mActivity == null) {
+                    result.success(checkOverlayPermission());
+                    return;
+                }
                 intent.setData(Uri.parse("package:" + mActivity.getPackageName()));
+                if (permissionResult != null) {
+                    // A previous request is still waiting; settle it so its
+                    // caller is not left hanging, then track the new one.
+                    permissionResult.success(checkOverlayPermission());
+                }
+                permissionResult = result;
                 mActivity.startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_PERMISSION);
             } else {
                 result.success(true);
@@ -159,6 +173,8 @@ public class FlutterOverlayWindowPlugin implements
                 final Intent i = new Intent(context, OverlayService.class);
                 context.stopService(i);
                 result.success(true);
+            } else {
+                result.success(false); // B193 #9: always answer the caller
             }
             return;
         } else {
@@ -221,7 +237,11 @@ public class FlutterOverlayWindowPlugin implements
     @Override
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_CODE_FOR_OVERLAY_PERMISSION) {
-            pendingResult.success(checkOverlayPermission());
+            Result r = permissionResult;
+            permissionResult = null;
+            if (r != null) {
+                r.success(checkOverlayPermission());
+            }
             return true;
         }
         return false;
