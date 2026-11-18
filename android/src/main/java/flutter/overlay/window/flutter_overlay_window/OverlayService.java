@@ -731,7 +731,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
         PendingIntent pendingIntent = PendingIntent.getActivity(this,
                 0, notificationIntent, pendingFlags);
-        final int notifyIcon = getDrawableResourceId("mipmap", "launcher");
+        // Pikmin fork (B193 #10): prefer the app's monochrome status-bar icon
+        // (drawable/ic_stat_mushroom); fall back to the launcher icon as before.
+        int statIcon = getDrawableResourceId("drawable", "stat_mushroom");
+        final int notifyIcon = statIcon != 0 ? statIcon : getDrawableResourceId("mipmap", "launcher");
         Notification notification = new NotificationCompat.Builder(this, OverlayConstants.CHANNEL_ID)
                 .setContentTitle(WindowSetup.overlayTitle)
                 .setContentText(WindowSetup.overlayContent)
